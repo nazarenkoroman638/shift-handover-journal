@@ -1,6 +1,7 @@
+import { useState } from "react";
 import "./App.css";
 
-const notes = [
+const initialNotes = [
   {
     id: 1,
     category: "Оборудование",
@@ -33,12 +34,92 @@ const notes = [
   },
 ];
 
+const categories = [
+  { name: "Оборудование", className: "equipment" },
+  { name: "Запасы", className: "stock" },
+  { name: "Гости", className: "guest" },
+  { name: "Задача", className: "task" },
+  { name: "Другое", className: "other" },
+];
+
+const emptyForm = {
+  category: "Оборудование",
+  title: "",
+  text: "",
+};
+
 function App() {
+  const [notes, setNotes] = useState(initialNotes);
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [formData, setFormData] = useState(emptyForm);
+
+  const openNotes = notes.filter((note) => !note.done);
+
   const today = new Intl.DateTimeFormat("ru-RU", {
     weekday: "long",
     day: "numeric",
     month: "long",
   }).format(new Date());
+
+  function handleFormChange(event) {
+    const { name, value } = event.target;
+
+    setFormData((currentForm) => ({
+      ...currentForm,
+      [name]: value,
+    }));
+  }
+
+  function handleSubmit(event) {
+    event.preventDefault();
+
+    const title = formData.title.trim();
+    const text = formData.text.trim();
+
+    if (!title || !text) {
+      return;
+    }
+
+    const selectedCategory = categories.find(
+      (category) => category.name === formData.category,
+    );
+
+    const newNote = {
+      id: Date.now(),
+      category: selectedCategory.name,
+      categoryClass: selectedCategory.className,
+      title,
+      text,
+      time: new Intl.DateTimeFormat("ru-RU", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date()),
+      state: "Открыта",
+      done: false,
+    };
+
+    setNotes((currentNotes) => [newNote, ...currentNotes]);
+    setFormData(emptyForm);
+    setIsFormOpen(false);
+  }
+
+  function toggleNote(noteId) {
+    setNotes((currentNotes) =>
+      currentNotes.map((note) => {
+        if (note.id !== noteId) {
+          return note;
+        }
+
+        const done = !note.done;
+
+        return {
+          ...note,
+          done,
+          state: done ? "Закрыта" : "Открыта",
+        };
+      }),
+    );
+  }
 
   return (
     <div className="app-shell">
@@ -50,8 +131,13 @@ function App() {
 
         <p className="topbar-caption">Журнал команды кафе</p>
 
-        <button className="primary-button" type="button">
-          + Новая запись
+        <button
+          className="primary-button"
+          type="button"
+          aria-expanded={isFormOpen}
+          onClick={() => setIsFormOpen((isOpen) => !isOpen)}
+        >
+          {isFormOpen ? "Закрыть форму" : "+ Новая запись"}
         </button>
       </header>
 
@@ -81,13 +167,91 @@ function App() {
                 <h2>Записи за сегодня</h2>
                 <p>Что уже закрыто, а что ещё ждёт внимания.</p>
               </div>
-              <span className="record-count">{notes.length} записи</span>
+              <span className="record-count">{notes.length} всего</span>
             </div>
+
+            {isFormOpen && (
+              <form
+                className="record-form"
+                id="new-record-form"
+                onSubmit={handleSubmit}
+              >
+                <div className="form-heading">
+                  <div>
+                    <h3>Новая запись</h3>
+                    <p>Добавь то, что следующей смене нужно знать.</p>
+                  </div>
+                  <button
+                    className="form-close"
+                    type="button"
+                    aria-label="Закрыть форму"
+                    onClick={() => setIsFormOpen(false)}
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <label className="form-field">
+                  <span>Категория</span>
+                  <select
+                    name="category"
+                    value={formData.category}
+                    onChange={handleFormChange}
+                  >
+                    {categories.map((category) => (
+                      <option key={category.name} value={category.name}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="form-field">
+                  <span>Короткий заголовок</span>
+                  <input
+                    name="title"
+                    value={formData.title}
+                    onChange={handleFormChange}
+                    placeholder="Например, закончились стаканы"
+                    maxLength={80}
+                    required
+                  />
+                </label>
+
+                <label className="form-field">
+                  <span>Подробности</span>
+                  <textarea
+                    name="text"
+                    value={formData.text}
+                    onChange={handleFormChange}
+                    placeholder="Что произошло и что нужно сделать?"
+                    rows={3}
+                    maxLength={240}
+                    required
+                  />
+                </label>
+
+                <div className="form-actions">
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => setIsFormOpen(false)}
+                  >
+                    Отмена
+                  </button>
+                  <button className="primary-button" type="submit">
+                    Сохранить запись
+                  </button>
+                </div>
+              </form>
+            )}
 
             <div className="records-list">
               {notes.map((note) => (
                 <article
-                  className={`record-card ${note.done ? "record-card--done" : ""}`}
+                  className={`record-card ${
+                    note.done ? "record-card--done" : ""
+                  }`}
                   key={note.id}
                 >
                   <div className="record-topline">
@@ -111,8 +275,14 @@ function App() {
                   <p className="record-text">{note.text}</p>
 
                   <div className="record-meta">
-                    <span>{note.time}</span>
-                    <span>Дневная смена</span>
+                    <span>{note.time} · Дневная смена</span>
+                    <button
+                      className="record-action"
+                      type="button"
+                      onClick={() => toggleNote(note.id)}
+                    >
+                      {note.done ? "Открыть снова" : "Закрыть запись"}
+                    </button>
                   </div>
                 </article>
               ))}
@@ -131,11 +301,11 @@ function App() {
             </p>
 
             <div className="handover-total">
-              <strong>02</strong>
+              <strong>{String(openNotes.length).padStart(2, "0")}</strong>
               <span>
-                записи
+                открытых
                 <br />
-                ещё открыты
+                записей
               </span>
             </div>
 
@@ -143,24 +313,29 @@ function App() {
 
             <p className="handover-list-title">Не забыть</p>
             <ul className="handover-list">
-              <li>
-                <span className="list-marker" />
-                Перепроверить кофемашину
-              </li>
-              <li>
-                <span className="list-marker" />
-                Добавить молоко в заявку
-              </li>
+              {openNotes.length === 0 ? (
+                <li>
+                  <span className="list-marker" />
+                  Открытых записей нет
+                </li>
+              ) : (
+                openNotes.slice(0, 2).map((note) => (
+                  <li key={note.id}>
+                    <span className="list-marker" />
+                    {note.title}
+                  </li>
+                ))
+              )}
             </ul>
 
             <p className="handover-footnote">
-              Выполненную запись можно будет закрыть.
+              Закрой запись, когда вопрос решён.
             </p>
           </aside>
         </div>
 
         <p className="page-footnote">
-          Учебная версия · записи пока демонстрационные
+          Пока записи сохраняются только до обновления страницы.
         </p>
       </main>
     </div>
