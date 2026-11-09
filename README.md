@@ -1,2 +1,82 @@
-# shift-handover-journal
-Full-stack shift handover journal for a small restaurant or cafe
+# Журнал смены
+
+Веб-приложение для кафе, где сотрудники могут передавать важную информацию друг другу между дневной и вечерней сменами.
+
+## Возможности
+
+- Создание записей с категорией, сменой, заголовком и подробностями.
+- Просмотр записей и фильтрация по смене.
+- Редактирование и удаление записей.
+- Закрытие решённых записей и повторное открытие.
+- Сохранение данных в PostgreSQL.
+
+## Технологии
+
+- React
+- Vite
+- Node.js
+- Express
+- PostgreSQL
+
+## Запуск проекта
+
+Для работы нужны Node.js, npm и PostgreSQL.
+
+### 1. Создай базу данных
+
+Создай базу с именем `shift_journal`. Подключись к ней и выполни SQL из файла `server/schema.sql`, чтобы создать таблицы.
+
+### 2. Настрой сервер
+
+Скопируй `server/.env.example` в `server/.env` и укажи пароль пользователя PostgreSQL:
+
+```env
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=postgres
+DB_NAME=shift_journal
+DB_PASSWORD=your_postgres_password
+```
+
+Файл `server/.env` содержит локальные настройки. Не добавляй его в GitHub.
+
+### 3. Запусти сервер
+
+В первом терминале из корневой папки проекта выполни:
+
+```bash
+cd server
+npm install
+node index.js
+```
+
+Сервер запустится по адресу `http://localhost:3000`.
+
+### 4. Запусти клиент
+
+Во втором терминале из корневой папки проекта выполни:
+
+```bash
+cd client
+npm install
+npm run dev
+```
+
+Открой адрес, который покажет Vite. Обычно это `http://localhost:5173/`.
+
+## API
+
+- `GET /api/health` — проверка работы сервера.
+- `GET /api/db-check` — проверка соединения с базой данных.
+- `GET /api/notes` — список записей.
+- `POST /api/notes` — создание записи.
+- `PATCH /api/notes/:id` — редактирование записи.
+- `PATCH /api/notes/:id/status` — закрытие или повторное открытие записи.
+- `DELETE /api/notes/:id` — удаление записи.
+
+## Структура проекта
+
+```text
+client/   React-приложение и интерфейс
+server/   Express API, подключение к PostgreSQL и SQL-схема
+```
