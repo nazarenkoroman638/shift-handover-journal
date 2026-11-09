@@ -39,6 +39,7 @@ function formatNote(note) {
 
 function App() {
   const [notes, setNotes] = useState([]);
+  const [shiftFilter, setShiftFilter] = useState("all");
   const [isLoading, setIsLoading] = useState(true);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [formData, setFormData] = useState(emptyForm);
@@ -48,6 +49,9 @@ function App() {
 
   const openNotes = notes.filter(
     (note) => note.shift_type === "evening" && !note.done,
+  );
+  const visibleNotes = notes.filter(
+    (note) => shiftFilter === "all" || note.shift_type === shiftFilter,
   );
 
   const today = new Intl.DateTimeFormat("ru-RU", {
@@ -214,7 +218,41 @@ function App() {
                 <h2>Записи за сегодня</h2>
                 <p>Что уже закрыто, а что ещё ждёт внимания.</p>
               </div>
-              <span className="record-count">{notes.length} всего</span>
+              <span className="record-count">{visibleNotes.length} всего</span>
+            </div>
+
+            <div className="shift-filters">
+              <button
+                className={
+                  shiftFilter === "all" ? "primary-button" : "secondary-button"
+                }
+                type="button"
+                onClick={() => setShiftFilter("all")}
+              >
+                Все
+              </button>
+
+              <button
+                className={
+                  shiftFilter === "day" ? "primary-button" : "secondary-button"
+                }
+                type="button"
+                onClick={() => setShiftFilter("day")}
+              >
+                Дневная
+              </button>
+
+              <button
+                className={
+                  shiftFilter === "evening"
+                    ? "primary-button"
+                    : "secondary-button"
+                }
+                type="button"
+                onClick={() => setShiftFilter("evening")}
+              >
+                Вечерняя
+              </button>
             </div>
 
             {error && (
@@ -313,13 +351,13 @@ function App() {
 
             {isLoading ? (
               <p className="empty-state">Загружаю записи…</p>
-            ) : notes.length === 0 ? (
+            ) : visibleNotes.length === 0 ? (
               <p className="empty-state">
                 Записей пока нет. Добавь первую для следующей смены.
               </p>
             ) : (
               <div className="records-list">
-                {notes.map((note) => (
+                {visibleNotes.map((note) => (
                   <article
                     className={`record-card ${
                       note.done ? "record-card--done" : ""

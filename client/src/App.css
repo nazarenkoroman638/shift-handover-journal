@@ -604,3 +604,10 @@ a {
   opacity: 0.6;
   cursor: wait;
 }
+
+.shift-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
