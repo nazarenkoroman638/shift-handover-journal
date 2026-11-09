@@ -197,7 +197,34 @@ function App() {
       setUpdatingId(null);
     }
   }
+  async function deleteNote(note) {
+    const confirmed = window.confirm(`Удалить запись «${note.title}»?`);
 
+    if (!confirmed) return;
+
+    setError("");
+    setUpdatingId(note.id);
+
+    try {
+      const response = await fetch(`/api/notes/${note.id}`, {
+        method: "DELETE",
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Не удалось удалить запись.");
+      }
+
+      setNotes((currentNotes) =>
+        currentNotes.filter((currentNote) => currentNote.id !== note.id),
+      );
+    } catch (deleteError) {
+      setError(deleteError.message || "Не удалось удалить запись.");
+    } finally {
+      setUpdatingId(null);
+    }
+  }
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -462,6 +489,14 @@ function App() {
                             : note.done
                               ? "Открыть снова"
                               : "Закрыть запись"}
+                        </button>
+                        <button
+                          className="record-action record-action--danger"
+                          type="button"
+                          disabled={updatingId === note.id}
+                          onClick={() => deleteNote(note)}
+                        >
+                          Удалить
                         </button>
                       </div>
                     </div>

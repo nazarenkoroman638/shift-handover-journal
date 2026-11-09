@@ -237,6 +237,29 @@ app.patch("/api/notes/:id", async (req, res) => {
     });
   }
 });
+app.delete("/api/notes/:id", async (req, res) => {
+  const noteId = Number(req.params.id);
+
+  if (!Number.isInteger(noteId) || noteId < 1) {
+    return res.status(400).json({ message: "Некорректный номер записи." });
+  }
+
+  try {
+    const result = await pool.query(
+      "DELETE FROM handover_notes WHERE id = $1 RETURNING id",
+      [noteId],
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: "Запись не найдена." });
+    }
+
+    return res.json({ id: result.rows[0].id });
+  } catch (error) {
+    console.error("Ошибка удаления записи:", error.message);
+    return res.status(500).json({ message: "Не удалось удалить запись." });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Сервер запущен: http://localhost:${PORT}`);
 });

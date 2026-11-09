@@ -630,3 +630,6 @@ a {
   align-items: center;
   gap: 12px;
 }
+.record-action--danger {
+  color: #b42318;
+}
