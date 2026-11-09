@@ -173,6 +173,70 @@ app.patch("/api/notes/:id/status", async (req, res) => {
   }
 });
 
+app.patch("/api/notes/:id", async (req, res) => {
+  const noteId = Number(req.params.id);
+  const { category, title, text } = req.body || {};
+
+  if (!Number.isInteger(noteId) || noteId < 1) {
+    return res.status(400).json({ message: "Некорректный номер записи." });
+  }
+
+  if (
+    typeof category !== "string" ||
+    typeof title !== "string" ||
+    typeof text !== "string" ||
+    !category.trim() ||
+    !title.trim() ||
+    !text.trim()
+  ) {
+    return res.status(400).json({
+      message: "Укажи категорию, заголовок и подробности.",
+    });
+  }
+
+  try {
+    const updateResult = await pool.query(
+      `
+        UPDATE handover_notes
+        SET category = $1,
+            title = $2,
+            description = $3
+        WHERE id = $4
+        RETURNING id
+      `,
+      [category.trim(), title.trim(), text.trim(), noteId],
+    );
+
+    if (updateResult.rowCount === 0) {
+      return res.status(404).json({ message: "Запись не найдена." });
+    }
+
+    const noteResult = await pool.query(
+      `
+        SELECT
+          note.id,
+          note.category,
+          note.title,
+          note.description AS text,
+          note.status,
+          note.created_at,
+          shift.shift_date,
+          shift.shift_type
+        FROM handover_notes AS note
+        JOIN shifts AS shift ON shift.id = note.shift_id
+        WHERE note.id = $1
+      `,
+      [noteId],
+    );
+
+    return res.json(noteResult.rows[0]);
+  } catch (error) {
+    console.error("Ошибка редактирования записи:", error.message);
+    return res.status(500).json({
+      message: "Не удалось изменить запись.",
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Сервер запущен: http://localhost:${PORT}`);
 });

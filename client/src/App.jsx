@@ -42,6 +42,7 @@ function App() {
   const [shiftFilter, setShiftFilter] = useState("all");
   const [isLoading, setIsLoading] = useState(true);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingNote, setEditingNote] = useState(null);
   const [formData, setFormData] = useState(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
   const [updatingId, setUpdatingId] = useState(null);
@@ -50,6 +51,7 @@ function App() {
   const openNotes = notes.filter(
     (note) => note.shift_type === "evening" && !note.done,
   );
+
   const visibleNotes = notes.filter(
     (note) => shiftFilter === "all" || note.shift_type === shiftFilter,
   );
@@ -93,14 +95,29 @@ function App() {
     }));
   }
 
+  function startEditing(note) {
+    setError("");
+    setEditingNote(note);
+    setFormData({
+      category: note.category,
+      title: note.title,
+      text: note.text,
+      shiftType: note.shift_type,
+    });
+    setIsFormOpen(true);
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
     setError("");
     setIsSaving(true);
 
+    const isEditing = editingNote !== null;
+    const endpoint = isEditing ? `/api/notes/${editingNote.id}` : "/api/notes";
+
     try {
-      const response = await fetch("/api/notes", {
-        method: "POST",
+      const response = await fetch(endpoint, {
+        method: isEditing ? "PATCH" : "POST",
         headers: {
           "Content-Type": "application/json",
         },
@@ -118,8 +135,20 @@ function App() {
         throw new Error(data.message || "Не удалось сохранить запись.");
       }
 
-      setNotes((currentNotes) => [formatNote(data), ...currentNotes]);
+      const savedNote = formatNote(data);
+
+      if (isEditing) {
+        setNotes((currentNotes) =>
+          currentNotes.map((note) =>
+            note.id === editingNote.id ? savedNote : note,
+          ),
+        );
+      } else {
+        setNotes((currentNotes) => [savedNote, ...currentNotes]);
+      }
+
       setFormData(emptyForm);
+      setEditingNote(null);
       setIsFormOpen(false);
     } catch (saveError) {
       setError(saveError.message || "Не удалось сохранить запись.");
@@ -185,6 +214,8 @@ function App() {
           aria-expanded={isFormOpen}
           onClick={() => {
             setError("");
+            setEditingNote(null);
+            setFormData(emptyForm);
             setIsFormOpen((isOpen) => !isOpen);
           }}
         >
@@ -265,14 +296,24 @@ function App() {
               <form className="record-form" onSubmit={handleSubmit}>
                 <div className="form-heading">
                   <div>
-                    <h3>Новая запись</h3>
-                    <p>Добавь то, что следующей смене нужно знать.</p>
+                    <h3>
+                      {editingNote ? "Редактировать запись" : "Новая запись"}
+                    </h3>
+                    <p>
+                      {editingNote
+                        ? "Измени категорию, заголовок или подробности."
+                        : "Добавь то, что следующей смене нужно знать."}
+                    </p>
                   </div>
                   <button
                     className="form-close"
                     type="button"
                     aria-label="Закрыть форму"
-                    onClick={() => setIsFormOpen(false)}
+                    onClick={() => {
+                      setIsFormOpen(false);
+                      setEditingNote(null);
+                      setFormData(emptyForm);
+                    }}
                   >
                     ×
                   </button>
@@ -293,17 +334,19 @@ function App() {
                   </select>
                 </label>
 
-                <label className="form-field">
-                  <span>Смена</span>
-                  <select
-                    name="shiftType"
-                    value={formData.shiftType}
-                    onChange={handleFormChange}
-                  >
-                    <option value="day">Дневная смена</option>
-                    <option value="evening">Вечерняя смена</option>
-                  </select>
-                </label>
+                {!editingNote && (
+                  <label className="form-field">
+                    <span>Смена</span>
+                    <select
+                      name="shiftType"
+                      value={formData.shiftType}
+                      onChange={handleFormChange}
+                    >
+                      <option value="day">Дневная смена</option>
+                      <option value="evening">Вечерняя смена</option>
+                    </select>
+                  </label>
+                )}
 
                 <label className="form-field">
                   <span>Короткий заголовок</span>
@@ -334,7 +377,11 @@ function App() {
                   <button
                     className="secondary-button"
                     type="button"
-                    onClick={() => setIsFormOpen(false)}
+                    onClick={() => {
+                      setIsFormOpen(false);
+                      setEditingNote(null);
+                      setFormData(emptyForm);
+                    }}
                   >
                     Отмена
                   </button>
@@ -343,7 +390,11 @@ function App() {
                     type="submit"
                     disabled={isSaving}
                   >
-                    {isSaving ? "Сохраняю…" : "Сохранить запись"}
+                    {isSaving
+                      ? "Сохраняю…"
+                      : editingNote
+                        ? "Сохранить изменения"
+                        : "Сохранить запись"}
                   </button>
                 </div>
               </form>
@@ -353,7 +404,9 @@ function App() {
               <p className="empty-state">Загружаю записи…</p>
             ) : visibleNotes.length === 0 ? (
               <p className="empty-state">
-                Записей пока нет. Добавь первую для следующей смены.
+                {notes.length === 0
+                  ? "Записей пока нет. Добавь первую для следующей смены."
+                  : "Для этой смены пока нет записей."}
               </p>
             ) : (
               <div className="records-list">
@@ -388,18 +441,29 @@ function App() {
                       <span>
                         {note.time} · {note.shiftLabel}
                       </span>
-                      <button
-                        className="record-action"
-                        type="button"
-                        disabled={updatingId === note.id}
-                        onClick={() => toggleNote(note)}
-                      >
-                        {updatingId === note.id
-                          ? "Сохраняю…"
-                          : note.done
-                            ? "Открыть снова"
-                            : "Закрыть запись"}
-                      </button>
+
+                      <div className="record-actions">
+                        <button
+                          className="record-action"
+                          type="button"
+                          onClick={() => startEditing(note)}
+                        >
+                          Изменить
+                        </button>
+
+                        <button
+                          className="record-action"
+                          type="button"
+                          disabled={updatingId === note.id}
+                          onClick={() => toggleNote(note)}
+                        >
+                          {updatingId === note.id
+                            ? "Сохраняю…"
+                            : note.done
+                              ? "Открыть снова"
+                              : "Закрыть запись"}
+                        </button>
+                      </div>
                     </div>
                   </article>
                 ))}

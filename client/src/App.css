@@ -611,3 +611,22 @@ a {
   gap: 8px;
   margin-bottom: 16px;
 }
+
+.record-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.shift-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.record-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
