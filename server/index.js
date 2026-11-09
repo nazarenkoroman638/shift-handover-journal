@@ -63,7 +63,7 @@ app.get("/api/notes", async (req, res) => {
 
 // Создать запись
 app.post("/api/notes", async (req, res) => {
-  const { category, title, text } = req.body || {};
+  const { category, title, text, shiftType = "day" } = req.body || {};
 
   if (
     typeof category !== "string" ||
@@ -78,15 +78,23 @@ app.post("/api/notes", async (req, res) => {
     });
   }
 
+  if (!["day", "evening"].includes(shiftType)) {
+    return res.status(400).json({
+      message: "Выбери дневную или вечернюю смену.",
+    });
+  }
+
   try {
-    // Найти сегодняшнюю дневную смену или создать её
-    const shiftResult = await pool.query(`
-      INSERT INTO shifts (shift_date, shift_type)
-      VALUES (CURRENT_DATE, 'day')
-      ON CONFLICT (shift_date, shift_type)
-      DO UPDATE SET shift_type = EXCLUDED.shift_type
-      RETURNING id
-    `);
+    const shiftResult = await pool.query(
+      `
+        INSERT INTO shifts (shift_date, shift_type)
+        VALUES (CURRENT_DATE, $1)
+        ON CONFLICT (shift_date, shift_type)
+        DO UPDATE SET shift_type = EXCLUDED.shift_type
+        RETURNING id
+      `,
+      [shiftType],
+    );
 
     const noteResult = await pool.query(
       `
@@ -104,10 +112,14 @@ app.post("/api/notes", async (req, res) => {
       [shiftResult.rows[0].id, category.trim(), title.trim(), text.trim()],
     );
 
-    res.status(201).json(noteResult.rows[0]);
+    return res.status(201).json({
+      ...noteResult.rows[0],
+      shift_type: shiftType,
+    });
   } catch (error) {
     console.error("Ошибка создания записи:", error.message);
-    res.status(500).json({
+
+    return res.status(500).json({
       message: "Не удалось сохранить запись.",
     });
   }

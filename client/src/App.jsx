@@ -13,6 +13,7 @@ const emptyForm = {
   category: "Оборудование",
   title: "",
   text: "",
+  shiftType: "day",
 };
 
 function formatNote(note) {
@@ -65,6 +66,7 @@ function App() {
 
         setNotes(data.map(formatNote));
       } catch (loadError) {
+        console.error(loadError);
         setError(
           "Не удалось загрузить записи. Проверь, что Express и PostgreSQL запущены.",
         );
@@ -100,6 +102,7 @@ function App() {
           category: formData.category,
           title: formData.title.trim(),
           text: formData.text.trim(),
+          shiftType: formData.shiftType,
         }),
       });
 
@@ -247,6 +250,18 @@ function App() {
                         {category.name}
                       </option>
                     ))}
+                  </select>
+                </label>
+
+                <label className="form-field">
+                  <span>Смена</span>
+                  <select
+                    name="shiftType"
+                    value={formData.shiftType}
+                    onChange={handleFormChange}
+                  >
+                    <option value="day">Дневная смена</option>
+                    <option value="evening">Вечерняя смена</option>
                   </select>
                 </label>
 
