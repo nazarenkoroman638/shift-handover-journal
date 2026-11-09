@@ -580,3 +580,27 @@ a {
   background: #edf0ed;
   color: #626d63;
 }
+
+.empty-state {
+  border: 1px dashed #dfe5dc;
+  border-radius: 15px;
+  padding: 18px;
+  background: #fff;
+  color: #737d73;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.error-message {
+  border: 1px solid #efd1cc;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fff6f4;
+  color: #8b4034;
+  font-size: 13px;
+}
+
+.record-action:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}

@@ -1,38 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import "./App.css";
-
-const initialNotes = [
-  {
-    id: 1,
-    category: "Оборудование",
-    categoryClass: "equipment",
-    title: "Подтекает правая группа кофемашины",
-    text: "После промывки вода скапливается у основания. Пока готовим на левой группе.",
-    time: "15:42",
-    state: "Открыта",
-    done: false,
-  },
-  {
-    id: 2,
-    category: "Запасы",
-    categoryClass: "stock",
-    title: "Овсяного молока осталось две упаковки",
-    text: "Добавить молоко в заявку поставщику до закрытия.",
-    time: "14:18",
-    state: "Открыта",
-    done: false,
-  },
-  {
-    id: 3,
-    category: "Гости",
-    categoryClass: "guest",
-    title: "Детский стул подготовлен к брони на 19:30",
-    text: "Столик у окна. Стул поставили заранее.",
-    time: "12:06",
-    state: "Закрыта",
-    done: true,
-  },
-];
 
 const categories = [
   { name: "Оборудование", className: "equipment" },
@@ -48,10 +15,35 @@ const emptyForm = {
   text: "",
 };
 
+function formatNote(note) {
+  const category = categories.find((item) => item.name === note.category);
+  const createdAt = new Date(note.created_at);
+  const done = note.status === "closed";
+
+  return {
+    ...note,
+    categoryClass: category?.className || "other",
+    time: Number.isNaN(createdAt.getTime())
+      ? ""
+      : new Intl.DateTimeFormat("ru-RU", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(createdAt),
+    state: done ? "Закрыта" : "Открыта",
+    done,
+    shiftLabel:
+      note.shift_type === "evening" ? "Вечерняя смена" : "Дневная смена",
+  };
+}
+
 function App() {
-  const [notes, setNotes] = useState(initialNotes);
+  const [notes, setNotes] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [formData, setFormData] = useState(emptyForm);
+  const [isSaving, setIsSaving] = useState(false);
+  const [updatingId, setUpdatingId] = useState(null);
+  const [error, setError] = useState("");
 
   const openNotes = notes.filter((note) => !note.done);
 
@@ -60,6 +52,29 @@ function App() {
     day: "numeric",
     month: "long",
   }).format(new Date());
+
+  useEffect(() => {
+    async function loadNotes() {
+      try {
+        const response = await fetch("/api/notes");
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.message || "Не удалось загрузить записи.");
+        }
+
+        setNotes(data.map(formatNote));
+      } catch (loadError) {
+        setError(
+          "Не удалось загрузить записи. Проверь, что Express и PostgreSQL запущены.",
+        );
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    loadNotes();
+  }, []);
 
   function handleFormChange(event) {
     const { name, value } = event.target;
@@ -70,55 +85,79 @@ function App() {
     }));
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
+    setError("");
+    setIsSaving(true);
 
-    const title = formData.title.trim();
-    const text = formData.text.trim();
+    try {
+      const response = await fetch("/api/notes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          category: formData.category,
+          title: formData.title.trim(),
+          text: formData.text.trim(),
+        }),
+      });
 
-    if (!title || !text) {
-      return;
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Не удалось сохранить запись.");
+      }
+
+      setNotes((currentNotes) => [formatNote(data), ...currentNotes]);
+      setFormData(emptyForm);
+      setIsFormOpen(false);
+    } catch (saveError) {
+      setError(saveError.message || "Не удалось сохранить запись.");
+    } finally {
+      setIsSaving(false);
     }
-
-    const selectedCategory = categories.find(
-      (category) => category.name === formData.category,
-    );
-
-    const newNote = {
-      id: Date.now(),
-      category: selectedCategory.name,
-      categoryClass: selectedCategory.className,
-      title,
-      text,
-      time: new Intl.DateTimeFormat("ru-RU", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }).format(new Date()),
-      state: "Открыта",
-      done: false,
-    };
-
-    setNotes((currentNotes) => [newNote, ...currentNotes]);
-    setFormData(emptyForm);
-    setIsFormOpen(false);
   }
 
-  function toggleNote(noteId) {
-    setNotes((currentNotes) =>
-      currentNotes.map((note) => {
-        if (note.id !== noteId) {
-          return note;
-        }
+  async function toggleNote(note) {
+    const nextStatus = note.done ? "open" : "closed";
+    setError("");
+    setUpdatingId(note.id);
 
-        const done = !note.done;
+    try {
+      const response = await fetch(`/api/notes/${note.id}/status`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ status: nextStatus }),
+      });
 
-        return {
-          ...note,
-          done,
-          state: done ? "Закрыта" : "Открыта",
-        };
-      }),
-    );
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Не удалось обновить запись.");
+      }
+
+      const done = data.status === "closed";
+
+      setNotes((currentNotes) =>
+        currentNotes.map((currentNote) =>
+          currentNote.id === note.id
+            ? {
+                ...currentNote,
+                status: data.status,
+                done,
+                state: done ? "Закрыта" : "Открыта",
+              }
+            : currentNote,
+        ),
+      );
+    } catch (updateError) {
+      setError(updateError.message || "Не удалось обновить запись.");
+    } finally {
+      setUpdatingId(null);
+    }
   }
 
   return (
@@ -135,7 +174,10 @@ function App() {
           className="primary-button"
           type="button"
           aria-expanded={isFormOpen}
-          onClick={() => setIsFormOpen((isOpen) => !isOpen)}
+          onClick={() => {
+            setError("");
+            setIsFormOpen((isOpen) => !isOpen);
+          }}
         >
           {isFormOpen ? "Закрыть форму" : "+ Новая запись"}
         </button>
@@ -170,12 +212,14 @@ function App() {
               <span className="record-count">{notes.length} всего</span>
             </div>
 
+            {error && (
+              <p className="error-message" role="alert">
+                {error}
+              </p>
+            )}
+
             {isFormOpen && (
-              <form
-                className="record-form"
-                id="new-record-form"
-                onSubmit={handleSubmit}
-              >
+              <form className="record-form" onSubmit={handleSubmit}>
                 <div className="form-heading">
                   <div>
                     <h3>Новая запись</h3>
@@ -239,54 +283,73 @@ function App() {
                   >
                     Отмена
                   </button>
-                  <button className="primary-button" type="submit">
-                    Сохранить запись
+                  <button
+                    className="primary-button"
+                    type="submit"
+                    disabled={isSaving}
+                  >
+                    {isSaving ? "Сохраняю…" : "Сохранить запись"}
                   </button>
                 </div>
               </form>
             )}
 
-            <div className="records-list">
-              {notes.map((note) => (
-                <article
-                  className={`record-card ${
-                    note.done ? "record-card--done" : ""
-                  }`}
-                  key={note.id}
-                >
-                  <div className="record-topline">
-                    <span
-                      className={`category-badge category-badge--${note.categoryClass}`}
-                    >
-                      {note.category}
-                    </span>
+            {isLoading ? (
+              <p className="empty-state">Загружаю записи…</p>
+            ) : notes.length === 0 ? (
+              <p className="empty-state">
+                Записей пока нет. Добавь первую для следующей смены.
+              </p>
+            ) : (
+              <div className="records-list">
+                {notes.map((note) => (
+                  <article
+                    className={`record-card ${
+                      note.done ? "record-card--done" : ""
+                    }`}
+                    key={note.id}
+                  >
+                    <div className="record-topline">
+                      <span
+                        className={`category-badge category-badge--${note.categoryClass}`}
+                      >
+                        {note.category}
+                      </span>
 
-                    <span
-                      className={`record-status ${
-                        note.done ? "record-status--done" : ""
-                      }`}
-                    >
-                      <span className="status-dot" />
-                      {note.state}
-                    </span>
-                  </div>
+                      <span
+                        className={`record-status ${
+                          note.done ? "record-status--done" : ""
+                        }`}
+                      >
+                        <span className="status-dot" />
+                        {note.state}
+                      </span>
+                    </div>
 
-                  <h3>{note.title}</h3>
-                  <p className="record-text">{note.text}</p>
+                    <h3>{note.title}</h3>
+                    <p className="record-text">{note.text}</p>
 
-                  <div className="record-meta">
-                    <span>{note.time} · Дневная смена</span>
-                    <button
-                      className="record-action"
-                      type="button"
-                      onClick={() => toggleNote(note.id)}
-                    >
-                      {note.done ? "Открыть снова" : "Закрыть запись"}
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
+                    <div className="record-meta">
+                      <span>
+                        {note.time} · {note.shiftLabel}
+                      </span>
+                      <button
+                        className="record-action"
+                        type="button"
+                        disabled={updatingId === note.id}
+                        onClick={() => toggleNote(note)}
+                      >
+                        {updatingId === note.id
+                          ? "Сохраняю…"
+                          : note.done
+                            ? "Открыть снова"
+                            : "Закрыть запись"}
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
           </section>
 
           <aside className="handover-card">
@@ -335,7 +398,7 @@ function App() {
         </div>
 
         <p className="page-footnote">
-          Пока записи сохраняются только до обновления страницы.
+          Данные загружаются и сохраняются в PostgreSQL.
         </p>
       </main>
     </div>
