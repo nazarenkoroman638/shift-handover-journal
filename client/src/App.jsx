@@ -46,7 +46,9 @@ function App() {
   const [updatingId, setUpdatingId] = useState(null);
   const [error, setError] = useState("");
 
-  const openNotes = notes.filter((note) => !note.done);
+  const openNotes = notes.filter(
+    (note) => note.shift_type === "evening" && !note.done,
+  );
 
   const today = new Intl.DateTimeFormat("ru-RU", {
     weekday: "long",
