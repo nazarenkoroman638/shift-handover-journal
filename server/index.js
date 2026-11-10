@@ -35,28 +35,39 @@ app.get("/api/db-check", async (req, res) => {
 
 // Получить все записи
 app.get("/api/notes", async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT
-        note.id,
-        note.category,
-        note.title,
-        note.description AS text,
-        note.status,
-        note.created_at,
-        shift.shift_date,
-        shift.shift_type
-      FROM handover_notes AS note
-      JOIN shifts AS shift ON shift.id = note.shift_id
-      ORDER BY note.created_at DESC
-    `);
+  const selectedDate = req.query.date || null;
 
-    res.json(result.rows);
+  if (selectedDate && !/^\d{4}-\d{2}-\d{2}$/.test(selectedDate)) {
+    return res.status(400).json({
+      message: "Дата должна быть в формате ГГГГ-ММ-ДД.",
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      `
+        SELECT
+          note.id,
+          note.category,
+          note.title,
+          note.description AS text,
+          note.status,
+          note.created_at,
+          shift.shift_date,
+          shift.shift_type
+        FROM handover_notes AS note
+        JOIN shifts AS shift ON shift.id = note.shift_id
+        WHERE shift.shift_date = COALESCE($1::date, CURRENT_DATE)
+        ORDER BY note.created_at DESC
+      `,
+      [selectedDate],
+    );
+
+    return res.json(result.rows);
   } catch (error) {
     console.error("Ошибка загрузки записей:", error.message);
-    res.status(500).json({
-      status: "error",
-      message: "Не удалось загрузить записи",
+    return res.status(500).json({
+      message: "Не удалось загрузить записи.",
     });
   }
 });

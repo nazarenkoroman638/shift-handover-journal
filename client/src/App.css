@@ -633,3 +633,31 @@ a {
 .record-action--danger {
   color: #b42318;
 }
+.date-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+  color: #5e7567;
+  font-size: 13px;
+}
+
+.date-filter input {
+  padding: 8px 10px;
+  border: 1px solid #dbe3d8;
+  border-radius: 9px;
+  background: #fff;
+  color: #14251b;
+  font: inherit;
+}
+
+.date-filter-hint {
+  margin: 0 0 12px;
+  color: #66766d;
+  font-size: 12px;
+}
+
+.primary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}

@@ -16,6 +16,13 @@ const emptyForm = {
   shiftType: "day",
 };
 
+function getLocalDateString() {
+  const now = new Date();
+  const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+
+  return localDate.toISOString().slice(0, 10);
+}
+
 function formatNote(note) {
   const category = categories.find((item) => item.name === note.category);
   const createdAt = new Date(note.created_at);
@@ -39,6 +46,7 @@ function formatNote(note) {
 
 function App() {
   const [notes, setNotes] = useState([]);
+  const [selectedDate, setSelectedDate] = useState(getLocalDateString);
   const [shiftFilter, setShiftFilter] = useState("all");
   const [isLoading, setIsLoading] = useState(true);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -48,6 +56,8 @@ function App() {
   const [updatingId, setUpdatingId] = useState(null);
   const [error, setError] = useState("");
 
+  const isTodaySelected = selectedDate === getLocalDateString();
+
   const openNotes = notes.filter(
     (note) => note.shift_type === "evening" && !note.done,
   );
@@ -56,16 +66,19 @@ function App() {
     (note) => shiftFilter === "all" || note.shift_type === shiftFilter,
   );
 
-  const today = new Intl.DateTimeFormat("ru-RU", {
+  const selectedDayLabel = new Intl.DateTimeFormat("ru-RU", {
     weekday: "long",
     day: "numeric",
     month: "long",
-  }).format(new Date());
+  }).format(new Date(`${selectedDate}T00:00:00`));
 
   useEffect(() => {
     async function loadNotes() {
+      setIsLoading(true);
+      setError("");
+
       try {
-        const response = await fetch("/api/notes");
+        const response = await fetch(`/api/notes?date=${selectedDate}`);
         const data = await response.json();
 
         if (!response.ok) {
@@ -84,7 +97,7 @@ function App() {
     }
 
     loadNotes();
-  }, []);
+  }, [selectedDate]);
 
   function handleFormChange(event) {
     const { name, value } = event.target;
@@ -197,6 +210,7 @@ function App() {
       setUpdatingId(null);
     }
   }
+
   async function deleteNote(note) {
     const confirmed = window.confirm(`Удалить запись «${note.title}»?`);
 
@@ -225,6 +239,7 @@ function App() {
       setUpdatingId(null);
     }
   }
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -239,6 +254,12 @@ function App() {
           className="primary-button"
           type="button"
           aria-expanded={isFormOpen}
+          disabled={!isTodaySelected}
+          title={
+            isTodaySelected
+              ? ""
+              : "Новые записи можно добавлять только за сегодня."
+          }
           onClick={() => {
             setError("");
             setEditingNote(null);
@@ -253,7 +274,7 @@ function App() {
       <main className="main-content">
         <section className="page-heading">
           <div>
-            <p className="date-label">{today}</p>
+            <p className="date-label">{selectedDayLabel}</p>
             <h1>Журнал смены</h1>
             <p className="page-description">
               Всё, что важно передать коллегам, — в одном месте.
@@ -273,11 +294,29 @@ function App() {
           <section className="records-section">
             <div className="section-heading">
               <div>
-                <h2>Записи за сегодня</h2>
+                <h2>
+                  {isTodaySelected
+                    ? "Записи за сегодня"
+                    : "Записи за выбранный день"}
+                </h2>
                 <p>Что уже закрыто, а что ещё ждёт внимания.</p>
               </div>
               <span className="record-count">{visibleNotes.length} всего</span>
             </div>
+
+            <label className="date-filter">
+              <span>Дата записей</span>
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(event) => {
+                  setSelectedDate(event.target.value);
+                  setIsFormOpen(false);
+                  setEditingNote(null);
+                  setFormData(emptyForm);
+                }}
+              />
+            </label>
 
             <div className="shift-filters">
               <button
@@ -312,6 +351,12 @@ function App() {
                 Вечерняя
               </button>
             </div>
+
+            {!isTodaySelected && (
+              <p className="date-filter-hint">
+                Просматривается история. Новые записи можно добавить за сегодня.
+              </p>
+            )}
 
             {error && (
               <p className="error-message" role="alert">
@@ -432,8 +477,8 @@ function App() {
             ) : visibleNotes.length === 0 ? (
               <p className="empty-state">
                 {notes.length === 0
-                  ? "Записей пока нет. Добавь первую для следующей смены."
-                  : "Для этой смены пока нет записей."}
+                  ? `За ${selectedDayLabel} записей нет.`
+                  : "Для этой смены записей нет."}
               </p>
             ) : (
               <div className="records-list">
@@ -490,6 +535,7 @@ function App() {
                               ? "Открыть снова"
                               : "Закрыть запись"}
                         </button>
+
                         <button
                           className="record-action record-action--danger"
                           type="button"
