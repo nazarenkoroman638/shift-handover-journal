@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import "./App.css";
-
 const categories = [
   { name: "Оборудование", className: "equipment" },
   { name: "Запасы", className: "stock" },
@@ -8,26 +7,21 @@ const categories = [
   { name: "Задача", className: "task" },
   { name: "Другое", className: "other" },
 ];
-
 const emptyForm = {
   category: "Оборудование",
   title: "",
   text: "",
   shiftType: "day",
 };
-
 function getLocalDateString() {
   const now = new Date();
   const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
-
   return localDate.toISOString().slice(0, 10);
 }
-
 function formatNote(note) {
   const category = categories.find((item) => item.name === note.category);
   const createdAt = new Date(note.created_at);
   const done = note.status === "closed";
-
   return {
     ...note,
     categoryClass: category?.className || "other",
@@ -43,8 +37,12 @@ function formatNote(note) {
       note.shift_type === "evening" ? "Вечерняя смена" : "Дневная смена",
   };
 }
-
 function App() {
+  const [authStatus, setAuthStatus] = useState("checking");
+  const [loginUsername, setLoginUsername] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [notes, setNotes] = useState([]);
   const [selectedDate, setSelectedDate] = useState(getLocalDateString);
   const [shiftFilter, setShiftFilter] = useState("all");
@@ -55,36 +53,63 @@ function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [updatingId, setUpdatingId] = useState(null);
   const [error, setError] = useState("");
-
   const isTodaySelected = selectedDate === getLocalDateString();
-
   const openNotes = notes.filter(
     (note) => note.shift_type === "evening" && !note.done,
   );
-
   const visibleNotes = notes.filter(
     (note) => shiftFilter === "all" || note.shift_type === shiftFilter,
   );
-
   const selectedDayLabel = new Intl.DateTimeFormat("ru-RU", {
     weekday: "long",
     day: "numeric",
     month: "long",
   }).format(new Date(`${selectedDate}T00:00:00`));
+  useEffect(() => {
+    let cancelled = false;
+    async function checkSession() {
+      try {
+        const response = await fetch("/api/auth/status", {
+          credentials: "same-origin",
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.message || "Не удалось проверить вход.");
+        }
+        if (!cancelled) {
+          setAuthStatus(data.authenticated ? "authenticated" : "unauthenticated");
+        }
+      } catch (sessionError) {
+        console.error(sessionError);
+        if (!cancelled) {
+          setAuthStatus("unauthenticated");
+          setLoginError("Не удалось проверить вход. Попробуй войти ещё раз.");
+        }
+      }
+    }
+    checkSession();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
+    if (authStatus !== "authenticated") return;
     async function loadNotes() {
       setIsLoading(true);
       setError("");
-
       try {
-        const response = await fetch(`/api/notes?date=${selectedDate}`);
+        const response = await fetch(`/api/notes?date=${selectedDate}`, {
+          credentials: "same-origin",
+        });
         const data = await response.json();
-
+        if (response.status === 401) {
+          setAuthStatus("unauthenticated");
+          return;
+        }
         if (!response.ok) {
           throw new Error(data.message || "Не удалось загрузить записи.");
         }
-
         setNotes(data.map(formatNote));
       } catch (loadError) {
         console.error(loadError);
@@ -95,19 +120,61 @@ function App() {
         setIsLoading(false);
       }
     }
-
     loadNotes();
-  }, [selectedDate]);
+  }, [selectedDate, authStatus]);
+  async function handleLogin(event) {
+    event.preventDefault();
+    setLoginError("");
+    setIsLoggingIn(true);
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          username: loginUsername.trim(),
+          password: loginPassword,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || "Не удалось войти.");
+      }
+      setLoginPassword("");
+      setAuthStatus("authenticated");
+    } catch (loginRequestError) {
+      setLoginError(loginRequestError.message || "Не удалось войти.");
+    } finally {
+      setIsLoggingIn(false);
+    }
+  }
+
+  async function handleLogout() {
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "same-origin",
+      });
+    } catch (logoutError) {
+      console.error(logoutError);
+    } finally {
+      setNotes([]);
+      setEditingNote(null);
+      setFormData(emptyForm);
+      setIsFormOpen(false);
+      setAuthStatus("unauthenticated");
+    }
+  }
 
   function handleFormChange(event) {
     const { name, value } = event.target;
-
     setFormData((currentForm) => ({
       ...currentForm,
       [name]: value,
     }));
   }
-
   function startEditing(note) {
     setError("");
     setEditingNote(note);
@@ -119,18 +186,16 @@ function App() {
     });
     setIsFormOpen(true);
   }
-
   async function handleSubmit(event) {
     event.preventDefault();
     setError("");
     setIsSaving(true);
-
     const isEditing = editingNote !== null;
     const endpoint = isEditing ? `/api/notes/${editingNote.id}` : "/api/notes";
-
     try {
       const response = await fetch(endpoint, {
         method: isEditing ? "PATCH" : "POST",
+        credentials: "same-origin",
         headers: {
           "Content-Type": "application/json",
         },
@@ -141,15 +206,15 @@ function App() {
           shiftType: formData.shiftType,
         }),
       });
-
       const data = await response.json();
-
+      if (response.status === 401) {
+        setAuthStatus("unauthenticated");
+        throw new Error("Сессия закончилась. Войди снова.");
+      }
       if (!response.ok) {
         throw new Error(data.message || "Не удалось сохранить запись.");
       }
-
       const savedNote = formatNote(data);
-
       if (isEditing) {
         setNotes((currentNotes) =>
           currentNotes.map((note) =>
@@ -159,7 +224,6 @@ function App() {
       } else {
         setNotes((currentNotes) => [savedNote, ...currentNotes]);
       }
-
       setFormData(emptyForm);
       setEditingNote(null);
       setIsFormOpen(false);
@@ -169,29 +233,28 @@ function App() {
       setIsSaving(false);
     }
   }
-
   async function toggleNote(note) {
     const nextStatus = note.done ? "open" : "closed";
     setError("");
     setUpdatingId(note.id);
-
     try {
       const response = await fetch(`/api/notes/${note.id}/status`, {
         method: "PATCH",
+        credentials: "same-origin",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ status: nextStatus }),
       });
-
       const data = await response.json();
-
+      if (response.status === 401) {
+        setAuthStatus("unauthenticated");
+        throw new Error("Сессия закончилась. Войди снова.");
+      }
       if (!response.ok) {
         throw new Error(data.message || "Не удалось обновить запись.");
       }
-
       const done = data.status === "closed";
-
       setNotes((currentNotes) =>
         currentNotes.map((currentNote) =>
           currentNote.id === note.id
@@ -210,26 +273,24 @@ function App() {
       setUpdatingId(null);
     }
   }
-
   async function deleteNote(note) {
     const confirmed = window.confirm(`Удалить запись «${note.title}»?`);
-
     if (!confirmed) return;
-
     setError("");
     setUpdatingId(note.id);
-
     try {
       const response = await fetch(`/api/notes/${note.id}`, {
         method: "DELETE",
+        credentials: "same-origin",
       });
-
       const data = await response.json();
-
+      if (response.status === 401) {
+        setAuthStatus("unauthenticated");
+        throw new Error("Сессия закончилась. Войди снова.");
+      }
       if (!response.ok) {
         throw new Error(data.message || "Не удалось удалить запись.");
       }
-
       setNotes((currentNotes) =>
         currentNotes.filter((currentNote) => currentNote.id !== note.id),
       );
@@ -239,6 +300,68 @@ function App() {
       setUpdatingId(null);
     }
   }
+  if (authStatus === "checking") {
+    return (
+      <div className="app-shell">
+        <main className="main-content">
+          <p className="empty-state">Проверяю вход…</p>
+        </main>
+      </div>
+    );
+  }
+
+  if (authStatus !== "authenticated") {
+    return (
+      <div className="app-shell">
+        <main className="main-content">
+          <section className="record-form" style={{ maxWidth: 440, margin: "8vh auto" }}>
+            <div className="form-heading">
+              <div>
+                <p className="date-label">ДОСТУП ДЛЯ КОМАНДЫ</p>
+                <h1>Журнал смены</h1>
+                <p>Войди, чтобы открыть журнал команды.</p>
+              </div>
+            </div>
+            {loginError && (
+              <p className="error-message" role="alert">
+                {loginError}
+              </p>
+            )}
+            <form onSubmit={handleLogin}>
+              <label className="form-field">
+                <span>Логин</span>
+                <input
+                  autoComplete="username"
+                  value={loginUsername}
+                  onChange={(event) => setLoginUsername(event.target.value)}
+                  required
+                />
+              </label>
+              <label className="form-field">
+                <span>Пароль</span>
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  value={loginPassword}
+                  onChange={(event) => setLoginPassword(event.target.value)}
+                  required
+                />
+              </label>
+              <div className="form-actions">
+                <button
+                  className="primary-button"
+                  type="submit"
+                  disabled={isLoggingIn}
+                >
+                  {isLoggingIn ? "Вхожу…" : "Войти"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="app-shell">
@@ -247,9 +370,10 @@ function App() {
           <span className="brand-mark">П</span>
           <span className="brand-name">пересменка</span>
         </a>
-
         <p className="topbar-caption">Журнал команды кафе</p>
-
+        <button className="secondary-button" type="button" onClick={handleLogout}>
+          Выйти
+        </button>
         <button
           className="primary-button"
           type="button"
@@ -270,7 +394,6 @@ function App() {
           {isFormOpen ? "Закрыть форму" : "+ Новая запись"}
         </button>
       </header>
-
       <main className="main-content">
         <section className="page-heading">
           <div>
@@ -280,7 +403,6 @@ function App() {
               Всё, что важно передать коллегам, — в одном месте.
             </p>
           </div>
-
           <div className="current-shift">
             <span className="shift-dot" aria-hidden="true" />
             <div>
@@ -289,7 +411,6 @@ function App() {
             </div>
           </div>
         </section>
-
         <div className="content-grid">
           <section className="records-section">
             <div className="section-heading">
@@ -303,7 +424,6 @@ function App() {
               </div>
               <span className="record-count">{visibleNotes.length} всего</span>
             </div>
-
             <label className="date-filter">
               <span>Дата записей</span>
               <input
@@ -317,7 +437,6 @@ function App() {
                 }}
               />
             </label>
-
             <div className="shift-filters">
               <button
                 className={
@@ -328,7 +447,6 @@ function App() {
               >
                 Все
               </button>
-
               <button
                 className={
                   shiftFilter === "day" ? "primary-button" : "secondary-button"
@@ -338,7 +456,6 @@ function App() {
               >
                 Дневная
               </button>
-
               <button
                 className={
                   shiftFilter === "evening"
@@ -351,19 +468,16 @@ function App() {
                 Вечерняя
               </button>
             </div>
-
             {!isTodaySelected && (
               <p className="date-filter-hint">
                 Просматривается история. Новые записи можно добавить за сегодня.
               </p>
             )}
-
             {error && (
               <p className="error-message" role="alert">
                 {error}
               </p>
             )}
-
             {isFormOpen && (
               <form className="record-form" onSubmit={handleSubmit}>
                 <div className="form-heading">
@@ -390,7 +504,6 @@ function App() {
                     ×
                   </button>
                 </div>
-
                 <label className="form-field">
                   <span>Категория</span>
                   <select
@@ -405,7 +518,6 @@ function App() {
                     ))}
                   </select>
                 </label>
-
                 {!editingNote && (
                   <label className="form-field">
                     <span>Смена</span>
@@ -419,7 +531,6 @@ function App() {
                     </select>
                   </label>
                 )}
-
                 <label className="form-field">
                   <span>Короткий заголовок</span>
                   <input
@@ -431,7 +542,6 @@ function App() {
                     required
                   />
                 </label>
-
                 <label className="form-field">
                   <span>Подробности</span>
                   <textarea
@@ -444,7 +554,6 @@ function App() {
                     required
                   />
                 </label>
-
                 <div className="form-actions">
                   <button
                     className="secondary-button"
@@ -471,7 +580,6 @@ function App() {
                 </div>
               </form>
             )}
-
             {isLoading ? (
               <p className="empty-state">Загружаю записи…</p>
             ) : visibleNotes.length === 0 ? (
@@ -495,7 +603,6 @@ function App() {
                       >
                         {note.category}
                       </span>
-
                       <span
                         className={`record-status ${
                           note.done ? "record-status--done" : ""
@@ -505,15 +612,12 @@ function App() {
                         {note.state}
                       </span>
                     </div>
-
                     <h3>{note.title}</h3>
                     <p className="record-text">{note.text}</p>
-
                     <div className="record-meta">
                       <span>
                         {note.time} · {note.shiftLabel}
                       </span>
-
                       <div className="record-actions">
                         <button
                           className="record-action"
@@ -522,7 +626,6 @@ function App() {
                         >
                           Изменить
                         </button>
-
                         <button
                           className="record-action"
                           type="button"
@@ -535,7 +638,6 @@ function App() {
                               ? "Открыть снова"
                               : "Закрыть запись"}
                         </button>
-
                         <button
                           className="record-action record-action--danger"
                           type="button"
@@ -551,18 +653,15 @@ function App() {
               </div>
             )}
           </section>
-
           <aside className="handover-card">
             <div className="handover-topline">
               <span className="handover-kicker">ПЕРЕДАЧА</span>
               <span className="handover-date">сегодня</span>
             </div>
-
             <h2>Для вечерней смены</h2>
             <p className="handover-description">
               Коротко о том, что стоит проверить перед началом.
             </p>
-
             <div className="handover-total">
               <strong>{String(openNotes.length).padStart(2, "0")}</strong>
               <span>
@@ -571,9 +670,7 @@ function App() {
                 записей
               </span>
             </div>
-
             <div className="handover-divider" />
-
             <p className="handover-list-title">Не забыть</p>
             <ul className="handover-list">
               {openNotes.length === 0 ? (
@@ -590,13 +687,11 @@ function App() {
                 ))
               )}
             </ul>
-
             <p className="handover-footnote">
               Закрой запись, когда вопрос решён.
             </p>
           </aside>
         </div>
-
         <p className="page-footnote">
           Данные загружаются и сохраняются в PostgreSQL.
         </p>
@@ -604,5 +699,4 @@ function App() {
     </div>
   );
 }
-
 export default App;
