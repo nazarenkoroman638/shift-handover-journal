@@ -39,6 +39,13 @@ function formatNote(note) {
 }
 function App() {
   const [authStatus, setAuthStatus] = useState("checking");
+  const [currentUser, setCurrentUser] = useState(null);
+  const [teamUsers, setTeamUsers] = useState([]);
+  const [teamPanelOpen, setTeamPanelOpen] = useState(false);
+  const [teamForm, setTeamForm] = useState({ displayName: "", username: "", password: "" });
+  const [isCreatingUser, setIsCreatingUser] = useState(false);
+  const [teamMessage, setTeamMessage] = useState("");
+  const [teamError, setTeamError] = useState("");
   const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState("");
@@ -77,6 +84,7 @@ function App() {
           throw new Error(data.message || "Не удалось проверить вход.");
         }
         if (!cancelled) {
+          setCurrentUser(data.user || null);
           setAuthStatus(data.authenticated ? "authenticated" : "unauthenticated");
         }
       } catch (sessionError) {
@@ -122,6 +130,97 @@ function App() {
     }
     loadNotes();
   }, [selectedDate, authStatus]);
+  async function fetchTeamUsers() {
+    setTeamError("");
+    try {
+      const response = await fetch("/api/team/users", {
+        credentials: "same-origin",
+      });
+      const data = await response.json();
+      if (response.status === 401) {
+        setCurrentUser(null);
+        setAuthStatus("unauthenticated");
+        throw new Error("Сессия закончилась. Войди снова.");
+      }
+      if (!response.ok) {
+        throw new Error(data.message || "Не удалось загрузить сотрудников.");
+      }
+      setTeamUsers(data);
+    } catch (loadError) {
+      setTeamError(loadError.message || "Не удалось загрузить сотрудников.");
+    }
+  }
+
+  async function handleCreateUser(event) {
+    event.preventDefault();
+    setTeamError("");
+    setTeamMessage("");
+    setIsCreatingUser(true);
+    try {
+      const response = await fetch("/api/team/users", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(teamForm),
+      });
+      const data = await response.json();
+      if (response.status === 401) {
+        setCurrentUser(null);
+        setAuthStatus("unauthenticated");
+        throw new Error("Сессия закончилась. Войди снова.");
+      }
+      if (!response.ok) {
+        throw new Error(data.message || "Не удалось создать аккаунт.");
+      }
+      setTeamForm({ displayName: "", username: "", password: "" });
+      setTeamMessage("Аккаунт создан. Передай сотруднику логин и пароль лично.");
+      await fetchTeamUsers();
+    } catch (createError) {
+      setTeamError(createError.message || "Не удалось создать аккаунт.");
+    } finally {
+      setIsCreatingUser(false);
+    }
+  }
+
+  async function toggleEmployee(user) {
+    setTeamError("");
+    setTeamMessage("");
+    try {
+      const response = await fetch(
+        "/api/team/users/" + user.id + "/active",
+        {
+          method: "PATCH",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ isActive: !user.is_active }),
+        },
+      );
+      const data = await response.json();
+      if (response.status === 401) {
+        setCurrentUser(null);
+        setAuthStatus("unauthenticated");
+        throw new Error("Сессия закончилась. Войди снова.");
+      }
+      if (!response.ok) {
+        throw new Error(data.message || "Не удалось изменить аккаунт.");
+      }
+      setTeamUsers((users) =>
+        users.map((currentUser) =>
+          currentUser.id === data.id ? data : currentUser,
+        ),
+      );
+      setTeamMessage(
+        data.is_active ? "Доступ сотрудника восстановлен." : "Аккаунт сотрудника отключён.",
+      );
+    } catch (updateError) {
+      setTeamError(updateError.message || "Не удалось изменить аккаунт.");
+    }
+  }
+
   async function handleLogin(event) {
     event.preventDefault();
     setLoginError("");
@@ -143,6 +242,7 @@ function App() {
         throw new Error(data.message || "Не удалось войти.");
       }
       setLoginPassword("");
+      setCurrentUser(data.user || null);
       setAuthStatus("authenticated");
     } catch (loginRequestError) {
       setLoginError(loginRequestError.message || "Не удалось войти.");
@@ -160,6 +260,7 @@ function App() {
     } catch (logoutError) {
       console.error(logoutError);
     } finally {
+      setCurrentUser(null);
       setNotes([]);
       setEditingNote(null);
       setFormData(emptyForm);
@@ -370,7 +471,23 @@ function App() {
           <span className="brand-mark">П</span>
           <span className="brand-name">пересменка</span>
         </a>
-        <p className="topbar-caption">Журнал команды кафе</p>
+        <p className="topbar-caption">Журнал команды кафе · {currentUser?.displayName}</p>
+        {currentUser?.role === "admin" && (
+          <button
+            className="secondary-button"
+            type="button"
+            aria-expanded={teamPanelOpen}
+            onClick={() => {
+              const nextOpen = !teamPanelOpen;
+              setTeamPanelOpen(nextOpen);
+              setTeamError("");
+              setTeamMessage("");
+              if (nextOpen) fetchTeamUsers();
+            }}
+          >
+            {teamPanelOpen ? "Закрыть сотрудников" : "Сотрудники"}
+          </button>
+        )}
         <button className="secondary-button" type="button" onClick={handleLogout}>
           Выйти
         </button>
@@ -395,6 +512,117 @@ function App() {
         </button>
       </header>
       <main className="main-content">
+        {teamPanelOpen && currentUser?.role === "admin" && (
+          <section className="record-form" aria-label="Управление сотрудниками">
+            <div className="form-heading">
+              <div>
+                <p className="date-label">УПРАВЛЕНИЕ КОМАНДОЙ</p>
+                <h2>Аккаунты сотрудников</h2>
+                <p>Создавай отдельный логин и пароль для каждого сотрудника.</p>
+              </div>
+            </div>
+            {teamError && (
+              <p className="error-message" role="alert">
+                {teamError}
+              </p>
+            )}
+            {teamMessage && (
+              <p className="page-footnote" role="status">
+                {teamMessage}
+              </p>
+            )}
+            <form onSubmit={handleCreateUser}>
+              <label className="form-field">
+                <span>Имя сотрудника</span>
+                <input
+                  value={teamForm.displayName}
+                  onChange={(event) =>
+                    setTeamForm((current) => ({
+                      ...current,
+                      displayName: event.target.value,
+                    }))
+                  }
+                  minLength={2}
+                  maxLength={60}
+                  autoComplete="name"
+                  required
+                />
+              </label>
+              <label className="form-field">
+                <span>Логин: латиница, цифры, точка, дефис или _</span>
+                <input
+                  value={teamForm.username}
+                  onChange={(event) =>
+                    setTeamForm((current) => ({
+                      ...current,
+                      username: event.target.value,
+                    }))
+                  }
+                  minLength={3}
+                  maxLength={30}
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  pattern="[A-Za-z0-9._-]{3,30}"
+                  required
+                />
+              </label>
+              <label className="form-field">
+                <span>Временный пароль: минимум 10 символов</span>
+                <input
+                  type="password"
+                  value={teamForm.password}
+                  onChange={(event) =>
+                    setTeamForm((current) => ({
+                      ...current,
+                      password: event.target.value,
+                    }))
+                  }
+                  minLength={10}
+                  maxLength={200}
+                  autoComplete="new-password"
+                  required
+                />
+              </label>
+              <div className="form-actions">
+                <button
+                  className="primary-button"
+                  type="submit"
+                  disabled={isCreatingUser}
+                >
+                  {isCreatingUser ? "Создаю…" : "Создать аккаунт"}
+                </button>
+              </div>
+            </form>
+            <h3>Сотрудники</h3>
+            {teamUsers.length === 0 ? (
+              <p className="empty-state">Пока нет сотрудников.</p>
+            ) : (
+              <div className="team-user-list">
+                {teamUsers.map((user) => (
+                  <div className="record-meta" key={user.id}>
+                    <span>
+                      <strong>{user.display_name}</strong> (@{user.username}) ·{" "}
+                      {user.role === "admin"
+                        ? "администратор"
+                        : user.is_active
+                          ? "доступ включён"
+                          : "доступ отключён"}
+                    </span>
+                    {user.role === "employee" && (
+                      <button
+                        className="record-action"
+                        type="button"
+                        onClick={() => toggleEmployee(user)}
+                      >
+                        {user.is_active ? "Отключить" : "Включить"}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
         <section className="page-heading">
           <div>
             <p className="date-label">{selectedDayLabel}</p>
@@ -616,7 +844,7 @@ function App() {
                     <p className="record-text">{note.text}</p>
                     <div className="record-meta">
                       <span>
-                        {note.time} · {note.shiftLabel}
+                        {note.time} · {note.shiftLabel} · Добавил: {note.created_by_name}
                       </span>
                       <div className="record-actions">
                         <button
